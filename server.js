@@ -2,6 +2,7 @@
 
 var restify = require('restify')
   , Cookies = require('cookies')
+  , http = require('http')
   , fs = require('fs')
   , tar = require('tar')
   , zlib = require('zlib')
@@ -146,14 +147,30 @@ server.put('/:name', function (req, res) {
   res.json(200, { ok: true });
 });
 
-function notFound(res) {
-  return res.json(404, { error: "not_found", reason: "document not found" });
+function notFound(req, res) {
+  var proxyRequest;
+
+  req.headers.host = 'registry.npmjs.org';
+
+  proxyRequest = http.request({
+    hostname: 'registry.npmjs.org',
+    port: 80,
+    path: req.url,
+    method: req.method,
+    headers: req.headers
+  }, function(proxyResponse) {
+    proxyResponse.pipe(res, {end: true});
+  });
+  req.pipe(proxyRequest, {end: true});
+  proxyRequest.end();
+
+  console.log('Proxying request to NPM', 'http://registry.npmjs.org' + req.url);
 }
 
 server.get('/:name', function (req, res) {
   var packageName = req.params.name;
   var meta = data.packageMeta(packageName);
-  if (!meta) return notFound(res);
+  if (!meta) return notFound(req, res);
 
   var versions =  data.whichVersions(packageName).sort();
   var versionsData = {};
@@ -185,10 +202,10 @@ server.get('/:name/:version', function (req, res) {
   var version = req.params.version;
 
   var meta = data.packageMeta(name);
-  if (!meta) return notFound(res);
+  if (!meta) return notFound(req, res);
 
   var versionMeta = meta.versions[version];
-  if (!versionMeta) return notFound(res);
+  if (!versionMeta) return notFound(req, res);
 
   res.json(200, versionMeta.data);
 });
